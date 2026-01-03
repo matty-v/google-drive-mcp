@@ -568,6 +568,20 @@ async function handleMcpMethod(
                 required: ['name', 'content'],
               },
             },
+            {
+              name: 'read_file',
+              description: 'Read the content of a file from Google Drive. Works with text files, Google Docs, Sheets (as CSV), and other exportable formats.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  fileId: {
+                    type: 'string',
+                    description: 'The ID of the file to read',
+                  },
+                },
+                required: ['fileId'],
+              },
+            },
           ],
         },
       };
@@ -803,6 +817,81 @@ async function handleToolCall(params: any, googleRefreshToken: string) {
                 size: response.data.size,
                 link: response.data.webViewLink,
               }, null, 2)}`,
+            },
+          ],
+        };
+      }
+
+      case 'read_file': {
+        if (!args?.fileId) {
+          return {
+            content: [{ type: 'text', text: 'Error: fileId is required' }],
+            isError: true,
+          };
+        }
+
+        // First, get file metadata to determine type
+        const fileMetadata = await drive.files.get({
+          fileId: args.fileId,
+          fields: 'id, name, mimeType, size',
+        });
+
+        const mimeType = fileMetadata.data.mimeType || '';
+        const fileName = fileMetadata.data.name || 'unknown';
+
+        // Google Workspace files need to be exported
+        const googleDocsTypes: Record<string, { exportMime: string; label: string }> = {
+          'application/vnd.google-apps.document': { exportMime: 'text/plain', label: 'Google Doc' },
+          'application/vnd.google-apps.spreadsheet': { exportMime: 'text/csv', label: 'Google Sheet' },
+          'application/vnd.google-apps.presentation': { exportMime: 'text/plain', label: 'Google Slides' },
+          'application/vnd.google-apps.drawing': { exportMime: 'image/svg+xml', label: 'Google Drawing' },
+        };
+
+        let content: string;
+
+        if (googleDocsTypes[mimeType]) {
+          // Export Google Workspace files
+          const exportType = googleDocsTypes[mimeType];
+          const response = await drive.files.export({
+            fileId: args.fileId,
+            mimeType: exportType.exportMime,
+          }, {
+            responseType: 'text',
+          });
+
+          content = response.data as string;
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**${fileName}** (${exportType.label})\n\n${content}`,
+              },
+            ],
+          };
+        }
+
+        // For regular files, download content
+        const response = await drive.files.get({
+          fileId: args.fileId,
+          alt: 'media',
+        }, {
+          responseType: 'text',
+        });
+
+        content = response.data as string;
+
+        // Truncate very large files
+        const maxLength = 100000; // ~100KB of text
+        if (content.length > maxLength) {
+          content = content.substring(0, maxLength) + '\n\n... [Content truncated - file too large]';
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**${fileName}** (${mimeType})\n\n${content}`,
             },
           ],
         };
