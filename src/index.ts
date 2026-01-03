@@ -16,7 +16,8 @@ const PROJECT_ID = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
 const BASE_URL = process.env.BASE_URL!; // e.g., https://mcp-drive-xyz.run.app
 
 const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file',  // Create and manage files created by this app
+  'https://www.googleapis.com/auth/drive',        // Full Drive access for listing/searching all files
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
@@ -523,6 +524,50 @@ async function handleMcpMethod(
                 required: ['query'],
               },
             },
+            {
+              name: 'create_folder',
+              description: 'Create a new folder in Google Drive.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Name of the folder to create',
+                  },
+                  parentFolderId: {
+                    type: 'string',
+                    description: 'ID of the parent folder. Omit to create in root.',
+                  },
+                },
+                required: ['name'],
+              },
+            },
+            {
+              name: 'create_file',
+              description: 'Create a new file in Google Drive with text content.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Name of the file to create (include extension, e.g., "notes.txt", "data.json")',
+                  },
+                  content: {
+                    type: 'string',
+                    description: 'Text content of the file',
+                  },
+                  parentFolderId: {
+                    type: 'string',
+                    description: 'ID of the parent folder. Omit to create in root.',
+                  },
+                  mimeType: {
+                    type: 'string',
+                    description: 'MIME type of the file (default: text/plain). Use "application/vnd.google-apps.document" for Google Docs.',
+                  },
+                },
+                required: ['name', 'content'],
+              },
+            },
           ],
         },
       };
@@ -642,6 +687,122 @@ async function handleToolCall(params: any, googleRefreshToken: string) {
             {
               type: 'text',
               text: `Search results for "${args.query}":\n\n${JSON.stringify(files, null, 2)}`,
+            },
+          ],
+        };
+      }
+
+      case 'create_folder': {
+        if (!args?.name) {
+          return {
+            content: [{ type: 'text', text: 'Error: name is required' }],
+            isError: true,
+          };
+        }
+
+        const folderMetadata: any = {
+          name: args.name,
+          mimeType: 'application/vnd.google-apps.folder',
+        };
+
+        if (args.parentFolderId) {
+          folderMetadata.parents = [args.parentFolderId];
+        }
+
+        const response = await drive.files.create({
+          requestBody: folderMetadata,
+          fields: 'id, name, webViewLink',
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Folder created successfully!\n\n${JSON.stringify({
+                id: response.data.id,
+                name: response.data.name,
+                link: response.data.webViewLink,
+              }, null, 2)}`,
+            },
+          ],
+        };
+      }
+
+      case 'create_file': {
+        if (!args?.name) {
+          return {
+            content: [{ type: 'text', text: 'Error: name is required' }],
+            isError: true,
+          };
+        }
+        if (args?.content === undefined) {
+          return {
+            content: [{ type: 'text', text: 'Error: content is required' }],
+            isError: true,
+          };
+        }
+
+        const mimeType = args.mimeType || 'text/plain';
+
+        const fileMetadata: any = {
+          name: args.name,
+        };
+
+        if (args.parentFolderId) {
+          fileMetadata.parents = [args.parentFolderId];
+        }
+
+        // For Google Docs, we need to convert from text
+        if (mimeType === 'application/vnd.google-apps.document') {
+          fileMetadata.mimeType = mimeType;
+          const response = await drive.files.create({
+            requestBody: fileMetadata,
+            media: {
+              mimeType: 'text/plain',
+              body: args.content,
+            },
+            fields: 'id, name, webViewLink, mimeType',
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Google Doc created successfully!\n\n${JSON.stringify({
+                  id: response.data.id,
+                  name: response.data.name,
+                  type: response.data.mimeType,
+                  link: response.data.webViewLink,
+                }, null, 2)}`,
+              },
+            ],
+          };
+        }
+
+        // For regular files, create with the specified content
+        const { Readable } = await import('stream');
+        const contentStream = Readable.from([args.content]);
+
+        const response = await drive.files.create({
+          requestBody: fileMetadata,
+          media: {
+            mimeType: mimeType,
+            body: contentStream,
+          },
+          fields: 'id, name, webViewLink, mimeType, size',
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `File created successfully!\n\n${JSON.stringify({
+                id: response.data.id,
+                name: response.data.name,
+                type: response.data.mimeType,
+                size: response.data.size,
+                link: response.data.webViewLink,
+              }, null, 2)}`,
             },
           ],
         };
