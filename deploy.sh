@@ -2,16 +2,16 @@
 set -e
 
 # ============================================================
-# MCP Drive Server Deployment Script
+# Google Drive MCP Deployment Script
 # ============================================================
 
 # Configuration - UPDATE THESE VALUES
 PROJECT_ID="${GCP_PROJECT:-your-project-id}"
 REGION="${GCP_REGION:-us-central1}"
-SERVICE_NAME="mcp-drive-server"
+SERVICE_NAME="google-drive-mcp"
 
 echo "============================================"
-echo "MCP Drive Server Deployment"
+echo "Google Drive MCP Deployment"
 echo "============================================"
 echo "Project: $PROJECT_ID"
 echo "Region: $REGION"

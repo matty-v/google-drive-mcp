@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server that enables Claude to interact with your
 - **Read files** - Read content from text files, Google Docs, and Sheets
 - **Create folders** - Organize your Drive with new folders
 - **Create files** - Create text files, JSON files, or Google Docs
+- **Move files** - Move files and folders to different locations
 
 ## Tools
 
@@ -18,6 +19,7 @@ An MCP (Model Context Protocol) server that enables Claude to interact with your
 | `get_file_info` | Get detailed metadata about a specific file |
 | `search_drive` | Search files by name or content |
 | `read_file` | Read the content of a file (supports text files, Google Docs, Sheets as CSV) |
+| `move_file` | Move a file or folder to a different location |
 | `create_folder` | Create a new folder |
 | `create_file` | Create a new file with text content |
 
@@ -162,6 +164,7 @@ Once connected, you can ask Claude:
 - "Create a folder called 'Projects' in my Drive"
 - "Create a file called 'notes.txt' with my meeting notes"
 - "Create a Google Doc called 'Project Plan' with an outline"
+- "Move the budget spreadsheet to the Finance folder"
 
 ## Security
 

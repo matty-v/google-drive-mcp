@@ -582,6 +582,24 @@ async function handleMcpMethod(
                 required: ['fileId'],
               },
             },
+            {
+              name: 'move_file',
+              description: 'Move a file or folder to a different location in Google Drive.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  fileId: {
+                    type: 'string',
+                    description: 'The ID of the file or folder to move',
+                  },
+                  destinationFolderId: {
+                    type: 'string',
+                    description: 'The ID of the destination folder. Use "root" for the root of My Drive.',
+                  },
+                },
+                required: ['fileId', 'destinationFolderId'],
+              },
+            },
           ],
         },
       };
@@ -892,6 +910,51 @@ async function handleToolCall(params: any, googleRefreshToken: string) {
             {
               type: 'text',
               text: `**${fileName}** (${mimeType})\n\n${content}`,
+            },
+          ],
+        };
+      }
+
+      case 'move_file': {
+        if (!args?.fileId) {
+          return {
+            content: [{ type: 'text', text: 'Error: fileId is required' }],
+            isError: true,
+          };
+        }
+        if (!args?.destinationFolderId) {
+          return {
+            content: [{ type: 'text', text: 'Error: destinationFolderId is required' }],
+            isError: true,
+          };
+        }
+
+        // Get current parents to remove them
+        const file = await drive.files.get({
+          fileId: args.fileId,
+          fields: 'id, name, parents',
+        });
+
+        const previousParents = file.data.parents?.join(',') || '';
+
+        // Move file by updating parents
+        const response = await drive.files.update({
+          fileId: args.fileId,
+          addParents: args.destinationFolderId,
+          removeParents: previousParents,
+          fields: 'id, name, parents, webViewLink',
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `File moved successfully!\n\n${JSON.stringify({
+                id: response.data.id,
+                name: response.data.name,
+                newParent: response.data.parents?.[0],
+                link: response.data.webViewLink,
+              }, null, 2)}`,
             },
           ],
         };
