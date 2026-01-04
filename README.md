@@ -11,6 +11,7 @@ An MCP (Model Context Protocol) server that enables Claude to interact with your
 - **Create files** - Create text files, JSON files, or Google Docs
 - **Create sheets** - Create Google Sheets with optional data
 - **Move files** - Move files and folders to different locations
+- **Edit docs** - Full document editing with formatting, headings, images, links, and lists
 
 ## Tools
 
@@ -24,6 +25,13 @@ An MCP (Model Context Protocol) server that enables Claude to interact with your
 | `create_folder` | Create a new folder |
 | `create_file` | Create a new file with text content |
 | `create_sheet` | Create a new Google Sheet with optional initial data |
+| `append_to_doc` | Append text to the end of a Google Doc |
+| `find_replace_in_doc` | Find and replace text in a Google Doc |
+| `insert_text` | Insert formatted text (bold, italic, colors, font size) at start or end |
+| `set_heading` | Convert a paragraph to a heading (H1-H6) |
+| `insert_image` | Insert an image from a URL |
+| `insert_link` | Insert a hyperlink |
+| `insert_list` | Insert a bulleted or numbered list |
 
 ## Architecture
 
@@ -168,6 +176,11 @@ Once connected, you can ask Claude:
 - "Create a Google Doc called 'Project Plan' with an outline"
 - "Move the budget spreadsheet to the Finance folder"
 - "Create a spreadsheet called 'Expenses' with columns for Date, Description, and Amount"
+- "Append today's meeting notes to my Project Doc"
+- "Replace all occurrences of '2024' with '2025' in my annual report"
+- "Add a bold heading called 'Introduction' to my blog post"
+- "Insert a bulleted list of key takeaways"
+- "Add a link to the source article"
 
 ## Security
 
