@@ -60,6 +60,13 @@ gcloud run deploy "$SERVICE_NAME" \
 # Get the service URL
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format="value(status.url)")
 
+# Update service with BASE_URL now that we know the URL
+echo "Setting BASE_URL environment variable..."
+gcloud run services update "$SERVICE_NAME" \
+    --region "$REGION" \
+    --set-env-vars "BASE_URL=$SERVICE_URL,GCP_PROJECT=$PROJECT_ID" \
+    --quiet
+
 echo ""
 echo "============================================"
 echo "Deployment Complete!"
@@ -86,26 +93,20 @@ echo ""
 echo "   # Store Client Secret"
 echo "   echo -n 'YOUR_CLIENT_SECRET' | gcloud secrets create oauth-client-secret --data-file=-"
 echo ""
-echo "3. Update the Cloud Run service with BASE_URL:"
-echo ""
-echo "   gcloud run services update $SERVICE_NAME \\"
-echo "       --region $REGION \\"
-echo "       --set-env-vars \"BASE_URL=$SERVICE_URL,GCP_PROJECT=$PROJECT_ID\""
-echo ""
-echo "4. Grant Secret Manager access to Cloud Run service account:"
+echo "3. Grant Secret Manager access to Cloud Run service account:"
 echo ""
 echo "   SA_EMAIL=\$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(spec.template.spec.serviceAccountName)')"
 echo "   gcloud secrets add-iam-policy-binding oauth-client-id --member=\"serviceAccount:\$SA_EMAIL\" --role=\"roles/secretmanager.secretAccessor\""
 echo "   gcloud secrets add-iam-policy-binding oauth-client-secret --member=\"serviceAccount:\$SA_EMAIL\" --role=\"roles/secretmanager.secretAccessor\""
 echo ""
-echo "5. Configure OAuth consent screen (if not already done):"
+echo "4. Configure OAuth consent screen (if not already done):"
 echo "   https://console.cloud.google.com/apis/credentials/consent?project=$PROJECT_ID"
 echo ""
 echo "   - User type: External (or Internal for Workspace)"
 echo "   - Add scopes: drive.readonly, userinfo.email"
 echo "   - Add your email as a test user"
 echo ""
-echo "6. Add to Claude Web:"
+echo "5. Add to Claude Web:"
 echo "   - Go to Claude settings > Integrations"
 echo "   - Add MCP server with URL: ${SERVICE_URL}/mcp"
 echo ""
