@@ -58,6 +58,13 @@ function hashCodeVerifier(verifier: string): string {
 // ============ OAUTH2 DISCOVERY ============
 // Claude Web looks for this to discover your OAuth endpoints
 
+app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
+  res.json({
+    resource: BASE_URL,
+    authorization_servers: [BASE_URL],
+  });
+});
+
 app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
   res.json({
     issuer: BASE_URL,
