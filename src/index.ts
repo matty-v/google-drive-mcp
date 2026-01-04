@@ -18,6 +18,7 @@ const BASE_URL = process.env.BASE_URL!; // e.g., https://mcp-drive-xyz.run.app
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',  // Create and manage files created by this app
   'https://www.googleapis.com/auth/drive',        // Full Drive access for listing/searching all files
+  'https://www.googleapis.com/auth/spreadsheets', // Read and write Google Sheets
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
@@ -600,6 +601,34 @@ async function handleMcpMethod(
                 required: ['fileId', 'destinationFolderId'],
               },
             },
+            {
+              name: 'create_sheet',
+              description: 'Create a new Google Sheet with optional initial data.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Name of the spreadsheet to create',
+                  },
+                  data: {
+                    type: 'array',
+                    description: 'Optional 2D array of data to populate the sheet. Each inner array is a row.',
+                    items: {
+                      type: 'array',
+                      items: {
+                        type: ['string', 'number', 'boolean'],
+                      },
+                    },
+                  },
+                  parentFolderId: {
+                    type: 'string',
+                    description: 'ID of the parent folder. Omit to create in root.',
+                  },
+                },
+                required: ['name'],
+              },
+            },
           ],
         },
       };
@@ -954,6 +983,62 @@ async function handleToolCall(params: any, googleRefreshToken: string) {
                 name: response.data.name,
                 newParent: response.data.parents?.[0],
                 link: response.data.webViewLink,
+              }, null, 2)}`,
+            },
+          ],
+        };
+      }
+
+      case 'create_sheet': {
+        if (!args?.name) {
+          return {
+            content: [{ type: 'text', text: 'Error: name is required' }],
+            isError: true,
+          };
+        }
+
+        // Create the spreadsheet using Drive API
+        const fileMetadata: any = {
+          name: args.name,
+          mimeType: 'application/vnd.google-apps.spreadsheet',
+        };
+
+        if (args.parentFolderId) {
+          fileMetadata.parents = [args.parentFolderId];
+        }
+
+        const createResponse = await drive.files.create({
+          requestBody: fileMetadata,
+          fields: 'id, name, webViewLink',
+        });
+
+        const spreadsheetId = createResponse.data.id!;
+
+        // If data is provided, populate the sheet using Sheets API
+        if (args.data && Array.isArray(args.data) && args.data.length > 0) {
+          const googleOAuth = await getGoogleOAuthClient();
+          googleOAuth.setCredentials({ refresh_token: googleRefreshToken });
+          const sheets = google.sheets({ version: 'v4', auth: googleOAuth });
+
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: 'Sheet1!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: {
+              values: args.data,
+            },
+          });
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Google Sheet created successfully!\n\n${JSON.stringify({
+                id: spreadsheetId,
+                name: createResponse.data.name,
+                link: createResponse.data.webViewLink,
+                rowsAdded: args.data?.length || 0,
               }, null, 2)}`,
             },
           ],
