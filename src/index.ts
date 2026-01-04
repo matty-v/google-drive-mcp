@@ -610,6 +610,24 @@ async function handleMcpMethod(
               },
             },
             {
+              name: 'rename_file',
+              description: 'Rename a file or folder in Google Drive.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  fileId: {
+                    type: 'string',
+                    description: 'The ID of the file or folder to rename',
+                  },
+                  newName: {
+                    type: 'string',
+                    description: 'The new name for the file or folder',
+                  },
+                },
+                required: ['fileId', 'newName'],
+              },
+            },
+            {
               name: 'create_sheet',
               description: 'Create a new Google Sheet with optional initial data.',
               inputSchema: {
@@ -1186,6 +1204,53 @@ async function handleToolCall(params: any, googleRefreshToken: string) {
                 id: response.data.id,
                 name: response.data.name,
                 newParent: response.data.parents?.[0],
+                link: response.data.webViewLink,
+              }, null, 2)}`,
+            },
+          ],
+        };
+      }
+
+      case 'rename_file': {
+        if (!args?.fileId) {
+          return {
+            content: [{ type: 'text', text: 'Error: fileId is required' }],
+            isError: true,
+          };
+        }
+        if (!args?.newName) {
+          return {
+            content: [{ type: 'text', text: 'Error: newName is required' }],
+            isError: true,
+          };
+        }
+
+        // Get current file info for the response
+        const currentFile = await drive.files.get({
+          fileId: args.fileId,
+          fields: 'id, name',
+        });
+
+        const oldName = currentFile.data.name;
+
+        // Rename the file
+        const response = await drive.files.update({
+          fileId: args.fileId,
+          requestBody: {
+            name: args.newName,
+          },
+          fields: 'id, name, webViewLink, mimeType',
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `File renamed successfully!\n\n${JSON.stringify({
+                id: response.data.id,
+                oldName: oldName,
+                newName: response.data.name,
+                type: response.data.mimeType,
                 link: response.data.webViewLink,
               }, null, 2)}`,
             },
