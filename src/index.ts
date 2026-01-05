@@ -5,6 +5,7 @@ import { getGoogleOAuthClient, generateSecureToken, hashCodeVerifier } from './o
 import { discoveryRoutes } from './oauth/discovery.js';
 import { registrationRoutes } from './oauth/registration.js';
 import { authorizeRoutes } from './oauth/authorize.js';
+import { callbackRoutes } from './oauth/callback.js';
 
 const app = express();
 app.use(express.json());
@@ -12,86 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(discoveryRoutes);
 app.use(registrationRoutes);
 app.use(authorizeRoutes);
-
-// ============ GOOGLE OAUTH CALLBACK ============
-// Google redirects here after user grants Drive access
-
-app.get('/google/callback', async (req: Request, res: Response) => {
-  try {
-    const { code, state: sessionId, error } = req.query as Record<string, string>;
-
-    if (error) {
-      res.status(400).send(`Google OAuth error: ${error}`);
-      return;
-    }
-
-    if (!code || !sessionId) {
-      res.status(400).send('Missing code or session');
-      return;
-    }
-
-    // Retrieve OAuth session
-    const sessionDoc = await firestore.doc(`oauth-sessions/${sessionId}`).get();
-    if (!sessionDoc.exists) {
-      res.status(400).send('Invalid or expired session');
-      return;
-    }
-    const session = sessionDoc.data()!;
-
-    // Check session expiry
-    if (new Date() > session.expires_at.toDate()) {
-      res.status(400).send('Session expired');
-      return;
-    }
-
-    // Exchange Google code for tokens
-    const googleOAuth = await getGoogleOAuthClient();
-    const { tokens } = await googleOAuth.getToken(code);
-
-    if (!tokens.refresh_token) {
-      res.status(400).send(
-        'No refresh token received. Please revoke access at https://myaccount.google.com/permissions and try again.'
-      );
-      return;
-    }
-
-    // Get user email for identification
-    googleOAuth.setCredentials(tokens);
-    const oauth2 = google.oauth2({ version: 'v2', auth: googleOAuth });
-    const userInfo = await oauth2.userinfo.get();
-    const userEmail = userInfo.data.email;
-
-    // Generate authorization code for Claude Web
-    const authCode = generateSecureToken();
-
-    await firestore.doc(`auth-codes/${authCode}`).set({
-      google_refresh_token: tokens.refresh_token,
-      google_access_token: tokens.access_token,
-      user_email: userEmail,
-      client_id: session.client_id,
-      code_challenge: session.code_challenge,
-      code_challenge_method: session.code_challenge_method,
-      redirect_uri: session.redirect_uri,
-      created_at: new Date(),
-      expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 min
-    });
-
-    // Clean up session
-    await firestore.doc(`oauth-sessions/${sessionId}`).delete();
-
-    // Redirect back to Claude Web with our auth code
-    const redirectUrl = new URL(session.redirect_uri);
-    redirectUrl.searchParams.set('code', authCode);
-    if (session.state) {
-      redirectUrl.searchParams.set('state', session.state);
-    }
-
-    res.redirect(redirectUrl.toString());
-  } catch (error) {
-    console.error('Google callback error:', error);
-    res.status(500).send('Authentication failed');
-  }
-});
+app.use(callbackRoutes);
 
 // ============ TOKEN ENDPOINT ============
 // Claude Web exchanges auth code for access token
