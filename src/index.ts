@@ -1,12 +1,14 @@
 import express, { Request, Response } from 'express';
 import { google } from 'googleapis';
 import { PORT, BASE_URL, GOOGLE_SCOPES, firestore } from './config.js';
-import { getGoogleOAuthClient } from './oauth/helpers.js';
-import { discoveryRoutes } from './oauth/discovery.js';
-import { registrationRoutes } from './oauth/registration.js';
-import { authorizeRoutes } from './oauth/authorize.js';
-import { callbackRoutes } from './oauth/callback.js';
-import { tokenRoutes } from './oauth/token.js';
+import {
+  discoveryRoutes,
+  registrationRoutes,
+  authorizeRoutes,
+  callbackRoutes,
+  tokenRoutes,
+  getGoogleOAuthClient,
+} from './oauth/index.js';
 
 const app = express();
 app.use(express.json());
