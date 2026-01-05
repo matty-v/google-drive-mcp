@@ -2,34 +2,12 @@ import express, { Request, Response } from 'express';
 import { google } from 'googleapis';
 import { PORT, BASE_URL, GOOGLE_SCOPES, firestore } from './config.js';
 import { getGoogleOAuthClient, generateSecureToken, hashCodeVerifier } from './oauth/helpers.js';
+import { discoveryRoutes } from './oauth/discovery.js';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// ============ OAUTH2 DISCOVERY ============
-// Claude Web looks for this to discover your OAuth endpoints
-
-app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
-  res.json({
-    resource: BASE_URL,
-    authorization_servers: [BASE_URL],
-  });
-});
-
-app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
-  res.json({
-    issuer: BASE_URL,
-    authorization_endpoint: `${BASE_URL}/authorize`,
-    token_endpoint: `${BASE_URL}/token`,
-    registration_endpoint: `${BASE_URL}/register`,
-    response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
-    code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: ['client_secret_post'],
-    scopes_supported: ['drive:read'],
-  });
-});
+app.use(discoveryRoutes);
 
 // ============ DYNAMIC CLIENT REGISTRATION ============
 // Claude Web registers itself as an OAuth client
