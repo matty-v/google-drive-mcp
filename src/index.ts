@@ -7,7 +7,7 @@ import {
   callbackRoutes,
   tokenRoutes,
 } from './oauth/index.js';
-import { mcpHandler } from './mcp/handler.js';
+import { mcpHandler } from './mcp/index.js';
 
 const app = express();
 app.use(express.json());
