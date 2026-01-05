@@ -3,40 +3,13 @@ import { google } from 'googleapis';
 import { PORT, BASE_URL, GOOGLE_SCOPES, firestore } from './config.js';
 import { getGoogleOAuthClient, generateSecureToken, hashCodeVerifier } from './oauth/helpers.js';
 import { discoveryRoutes } from './oauth/discovery.js';
+import { registrationRoutes } from './oauth/registration.js';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(discoveryRoutes);
-
-// ============ DYNAMIC CLIENT REGISTRATION ============
-// Claude Web registers itself as an OAuth client
-
-app.post('/register', async (req: Request, res: Response) => {
-  try {
-    const { client_name, redirect_uris } = req.body;
-
-    const clientId = generateSecureToken(16);
-    const clientSecret = generateSecureToken(32);
-
-    await firestore.doc(`oauth-clients/${clientId}`).set({
-      client_name,
-      client_secret: clientSecret,
-      redirect_uris,
-      created_at: new Date(),
-    });
-
-    res.status(201).json({
-      client_id: clientId,
-      client_secret: clientSecret,
-      client_name,
-      redirect_uris,
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+app.use(registrationRoutes);
 
 // ============ AUTHORIZATION ENDPOINT ============
 // Claude Web redirects user here to start OAuth flow
