@@ -15,16 +15,30 @@ npm run start      # Run the compiled server
 
 This is an MCP (Model Context Protocol) server that provides Google Drive, Docs, and Sheets access to Claude Web via OAuth2 authentication. It runs on Google Cloud Run.
 
-### Single-File Server (`src/index.ts`)
+### Modular Architecture
 
-The entire server is implemented in one file with these sections:
-
-1. **OAuth2 Discovery Endpoints** - `/.well-known/oauth-*` endpoints for Claude Web to discover auth configuration
-2. **Dynamic Client Registration** - `/register` for Claude Web to register as an OAuth client
-3. **Authorization Flow** - `/authorize` starts OAuth, redirects to Google, stores session in Firestore
-4. **Google Callback** - `/google/callback` receives Google's OAuth response, exchanges for tokens
-5. **Token Endpoint** - `/token` handles authorization_code and refresh_token grants with PKCE validation
-6. **MCP Handler** - `/` and `/mcp` handle JSON-RPC MCP protocol requests
+```
+src/
+  index.ts          # Express app setup, route wiring (~35 lines)
+  config.ts         # Constants, Firestore, Secrets (~20 lines)
+  oauth/
+    index.ts        # Re-exports all OAuth modules
+    helpers.ts      # OAuth utilities (getGoogleOAuthClient, generateSecureToken, etc.)
+    discovery.ts    # /.well-known endpoints
+    registration.ts # POST /register
+    authorize.ts    # GET /authorize
+    callback.ts     # GET /google/callback
+    token.ts        # POST /token
+  mcp/
+    index.ts        # Re-exports handler, tools, types
+    types.ts        # TypeScript interfaces (Tool, ToolResult, etc.)
+    handler.ts      # JSON-RPC dispatcher
+    tools/
+      index.ts      # Tool registry
+      drive.ts      # Drive operations (8 tools)
+      docs.ts       # Docs operations (7 tools)
+      sheets.ts     # Sheets operations (1 tool)
+```
 
 ### Data Storage (Firestore Collections)
 
