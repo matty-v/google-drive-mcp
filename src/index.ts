@@ -4,74 +4,14 @@ import { PORT, BASE_URL, GOOGLE_SCOPES, firestore } from './config.js';
 import { getGoogleOAuthClient, generateSecureToken, hashCodeVerifier } from './oauth/helpers.js';
 import { discoveryRoutes } from './oauth/discovery.js';
 import { registrationRoutes } from './oauth/registration.js';
+import { authorizeRoutes } from './oauth/authorize.js';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(discoveryRoutes);
 app.use(registrationRoutes);
-
-// ============ AUTHORIZATION ENDPOINT ============
-// Claude Web redirects user here to start OAuth flow
-
-app.get('/authorize', async (req: Request, res: Response) => {
-  try {
-    const {
-      client_id,
-      redirect_uri,
-      state,
-      code_challenge,
-      code_challenge_method,
-      response_type,
-    } = req.query as Record<string, string>;
-
-    // Validate required params
-    if (!client_id || !redirect_uri || !code_challenge || response_type !== 'code') {
-      res.status(400).json({ error: 'invalid_request' });
-      return;
-    }
-
-    // Verify client exists
-    const clientDoc = await firestore.doc(`oauth-clients/${client_id}`).get();
-    if (!clientDoc.exists) {
-      res.status(400).json({ error: 'invalid_client' });
-      return;
-    }
-
-    // Verify redirect URI is registered
-    const clientData = clientDoc.data()!;
-    if (!clientData.redirect_uris?.includes(redirect_uri)) {
-      res.status(400).json({ error: 'invalid_redirect_uri' });
-      return;
-    }
-
-    // Store OAuth session
-    const sessionId = generateSecureToken();
-    await firestore.doc(`oauth-sessions/${sessionId}`).set({
-      client_id,
-      redirect_uri,
-      state,
-      code_challenge,
-      code_challenge_method: code_challenge_method || 'S256',
-      created_at: new Date(),
-      expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 min
-    });
-
-    // Redirect to Google OAuth for Drive permissions
-    const googleOAuth = await getGoogleOAuthClient();
-    const googleAuthUrl = googleOAuth.generateAuthUrl({
-      access_type: 'offline',
-      scope: GOOGLE_SCOPES,
-      prompt: 'consent',
-      state: sessionId,
-    });
-
-    res.redirect(googleAuthUrl);
-  } catch (error) {
-    console.error('Authorization error:', error);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+app.use(authorizeRoutes);
 
 // ============ GOOGLE OAUTH CALLBACK ============
 // Google redirects here after user grants Drive access
