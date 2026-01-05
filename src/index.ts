@@ -1,30 +1,14 @@
 import express, { Request, Response } from 'express';
 import crypto from 'crypto';
-import { Firestore } from '@google-cloud/firestore';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { OAuth2Client } from 'googleapis-common';
 import { google } from 'googleapis';
+import { PORT, PROJECT_ID, BASE_URL, GOOGLE_SCOPES, firestore, secrets } from './config.js';
 
 // ============ CONFIGURATION ============
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-const PORT = process.env.PORT || 8080;
-const PROJECT_ID = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
-const BASE_URL = process.env.BASE_URL!; // e.g., https://mcp-drive-xyz.run.app
-
-const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',  // Create and manage files created by this app
-  'https://www.googleapis.com/auth/drive',        // Full Drive access for listing/searching all files
-  'https://www.googleapis.com/auth/spreadsheets', // Read and write Google Sheets
-  'https://www.googleapis.com/auth/documents',    // Read and write Google Docs
-  'https://www.googleapis.com/auth/userinfo.email',
-];
-
-const firestore = new Firestore();
-const secrets = new SecretManagerServiceClient();
 
 // ============ HELPERS ============
 
