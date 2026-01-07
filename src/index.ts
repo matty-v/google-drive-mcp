@@ -8,6 +8,7 @@ import {
   tokenRoutes,
 } from './oauth/index.js';
 import { mcpHandler } from './mcp/index.js';
+import { generateLandingPage } from './landing.js';
 
 const app = express();
 app.use(express.json());
@@ -23,6 +24,11 @@ app.use(tokenRoutes);
 // MCP routes
 app.post('/', mcpHandler);
 app.post('/mcp', mcpHandler);
+
+// Landing page
+app.get('/', (_req: Request, res: Response) => {
+  res.type('html').send(generateLandingPage());
+});
 
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
