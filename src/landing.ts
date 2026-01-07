@@ -1,4 +1,5 @@
 import { toolDefinitions } from './mcp/index.js';
+import { BASE_URL } from './config.js';
 
 interface ToolParam {
   name: string;
@@ -355,6 +356,99 @@ export function generateLandingPage(): string {
       font-style: italic;
     }
 
+    /* Instructions section */
+    .instructions {
+      margin-bottom: 3rem;
+    }
+
+    .instructions-card {
+      background: rgba(18, 24, 33, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .instructions-card h3 {
+      font-size: 1.1rem;
+      font-weight: 500;
+      margin-bottom: 1.5rem;
+      color: var(--foreground);
+    }
+
+    .steps {
+      list-style: none;
+      counter-reset: steps;
+    }
+
+    .steps li {
+      counter-increment: steps;
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+      font-weight: 300;
+    }
+
+    .steps li::before {
+      content: counter(steps);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 50%;
+      color: var(--accent-cyan);
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    .steps li strong {
+      color: var(--foreground);
+      font-weight: 500;
+    }
+
+    .url-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .url-box code {
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      word-break: break-all;
+    }
+
+    .copy-btn {
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      color: var(--accent-cyan);
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .copy-btn:hover {
+      background: rgba(0, 212, 255, 0.2);
+      border-color: rgba(0, 212, 255, 0.5);
+    }
+
     /* Footer */
     footer {
       text-align: center;
@@ -401,6 +495,26 @@ export function generateLandingPage(): string {
       </p>
       <a href="https://voget.io" class="hero-link">&larr; voget.io</a>
     </header>
+
+    <section class="instructions">
+      <div class="section-header">
+        <h2 class="glow-cyan">Getting Started</h2>
+        <p>Connect this MCP server to Claude in a few steps</p>
+      </div>
+      <div class="instructions-card">
+        <h3>How to Connect</h3>
+        <ol class="steps">
+          <li><span>Go to <strong>Claude.ai</strong> and open <strong>Settings</strong></span></li>
+          <li><span>Navigate to <strong>Integrations</strong> (you may need a Pro subscription)</span></li>
+          <li><span>Click <strong>Add Integration</strong> and select <strong>MCP Server</strong></span></li>
+          <li><span>Enter the server URL below and complete the OAuth flow to authorize access to your Google Drive</span></li>
+        </ol>
+        <div class="url-box">
+          <code id="server-url">${BASE_URL}/mcp</code>
+          <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('server-url').textContent)">Copy</button>
+        </div>
+      </div>
+    </section>
 
     <section>
       <div class="section-header">

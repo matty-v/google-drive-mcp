@@ -3,7 +3,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 export const PORT = process.env.PORT || 8080;
 export const PROJECT_ID = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
-export const BASE_URL = process.env.BASE_URL!;
+export const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
