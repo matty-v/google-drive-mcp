@@ -496,6 +496,16 @@ export function generateLandingPage(): string {
       <a href="https://voget.io" class="hero-link">&larr; voget.io</a>
     </header>
 
+    <section>
+      <div class="section-header">
+        <h2 class="glow-purple">Available Tools</h2>
+        <p>${tools.length} tools for Drive, Docs, and Sheets operations</p>
+      </div>
+      <div class="tools-grid">
+        ${toolCards}
+      </div>
+    </section>
+
     <section class="instructions">
       <div class="section-header">
         <h2 class="glow-cyan">Getting Started</h2>
@@ -513,16 +523,6 @@ export function generateLandingPage(): string {
           <code id="server-url">${BASE_URL}/mcp</code>
           <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('server-url').textContent)">Copy</button>
         </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-header">
-        <h2 class="glow-purple">Available Tools</h2>
-        <p>${tools.length} tools for Drive, Docs, and Sheets operations</p>
-      </div>
-      <div class="tools-grid">
-        ${toolCards}
       </div>
     </section>
 
