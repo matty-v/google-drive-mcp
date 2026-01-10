@@ -1,17 +1,38 @@
-import { Firestore } from '@google-cloud/firestore';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { v4 as uuidv4 } from "uuid";
 
-export const PORT = process.env.PORT || 8080;
-export const PROJECT_ID = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
-export const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-
-export const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/documents',
-  'https://www.googleapis.com/auth/userinfo.email',
+// Validate required config at startup
+const required = [
+  "BASE_URL",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "ALLOWED_EMAIL",
 ];
 
-export const firestore = new Firestore();
-export const secrets = new SecretManagerServiceClient();
+for (const key of required) {
+  if (!process.env[key]) {
+    console.error(`Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
+export const config = {
+  // Server
+  port: parseInt(process.env.PORT || "8080"),
+  baseUrl: process.env.BASE_URL!,
+
+  // Google OAuth (for authenticating the user)
+  googleClientId: process.env.GOOGLE_CLIENT_ID!,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  allowedEmail: process.env.ALLOWED_EMAIL!,
+
+  // JWT signing for tokens issued to Claude
+  jwtSecret: process.env.JWT_SECRET || uuidv4(),
+
+  // Google API scopes
+  googleScopes: [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/userinfo.email",
+  ],
+};
