@@ -40,7 +40,17 @@ gcloud services enable \
     docs.googleapis.com \
     sheets.googleapis.com \
     secretmanager.googleapis.com \
+    firestore.googleapis.com \
     --quiet
+
+# Create Firestore database if it doesn't exist
+echo "Setting up Firestore..."
+if ! gcloud firestore databases describe --project="$PROJECT_ID" 2>/dev/null; then
+    echo "Creating Firestore database in Native mode..."
+    gcloud firestore databases create --location="$REGION" --project="$PROJECT_ID"
+else
+    echo "Firestore database already exists."
+fi
 
 # Build TypeScript
 echo "Building TypeScript..."

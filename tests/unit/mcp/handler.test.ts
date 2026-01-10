@@ -6,13 +6,21 @@ import * as jwt from 'jsonwebtoken';
 // Use the same JWT secret as setup.ts
 const TEST_JWT_SECRET = 'test-jwt-secret';
 
+// Mock credentials state
+let mockGoogleCredentials: { refreshToken: string; email: string } | null = null;
+
 // Mock the auth/state module to control googleCredentials
 vi.mock('../../../src/auth/state.js', () => ({
-  googleCredentials: null,
+  getGoogleCredentials: vi.fn(async () => mockGoogleCredentials),
   setGoogleCredentials: vi.fn(),
-  pendingAuth: new Map(),
-  authCodes: new Map(),
-  registeredClients: new Map(),
+  getPendingAuth: vi.fn(),
+  setPendingAuth: vi.fn(),
+  deletePendingAuth: vi.fn(),
+  getAuthCode: vi.fn(),
+  setAuthCode: vi.fn(),
+  deleteAuthCode: vi.fn(),
+  getRegisteredClient: vi.fn(),
+  setRegisteredClient: vi.fn(),
 }));
 
 // Mock the tools module
@@ -39,7 +47,6 @@ vi.mock('../../../src/mcp/tools/index.js', () => ({
 
 import { mcpRouter } from '../../../src/mcp/handler.js';
 import { toolsByName } from '../../../src/mcp/tools/index.js';
-import * as authState from '../../../src/auth/state.js';
 
 // Helper to generate valid JWT tokens for testing
 function generateTestToken(email: string = 'test@example.com'): string {
@@ -67,7 +74,7 @@ describe('mcp/handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset googleCredentials to a valid state by default
-    (authState as any).googleCredentials = {
+    mockGoogleCredentials = {
       refreshToken: 'test-refresh-token',
       email: 'test@example.com',
     };
@@ -229,7 +236,7 @@ describe('mcp/handler', () => {
       });
 
       it('returns error when googleCredentials is null', async () => {
-        (authState as any).googleCredentials = null;
+        mockGoogleCredentials = null;
         const token = generateTestToken();
 
         const response = await request(app)

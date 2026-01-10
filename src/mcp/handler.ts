@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { requireAuth, googleCredentials } from "../auth/index.js";
+import { requireAuth, getGoogleCredentials } from "../auth/index.js";
 import { config } from "../config.js";
 import { toolDefinitions, toolsByName } from "./tools/index.js";
 
@@ -73,6 +73,7 @@ async function handleMcpMethod(
       console.log(`Tool call: ${name}`, JSON.stringify(args));
 
       // Check if we have Google credentials
+      const googleCredentials = await getGoogleCredentials();
       if (!googleCredentials) {
         return {
           jsonrpc: "2.0",

@@ -6,6 +6,35 @@ import * as jwt from 'jsonwebtoken';
 // Use the same JWT secret as setup.ts
 const TEST_JWT_SECRET = 'test-jwt-secret';
 
+// Mock state storage
+const mockPendingAuth = new Map<string, any>();
+const mockAuthCodes = new Map<string, any>();
+const mockRegisteredClients = new Map<string, any>();
+
+// Mock the auth/state module with async functions
+vi.mock('../../src/auth/state.js', () => ({
+  getPendingAuth: vi.fn(async (state: string) => mockPendingAuth.get(state) || null),
+  setPendingAuth: vi.fn(async (state: string, data: any) => {
+    mockPendingAuth.set(state, data);
+  }),
+  deletePendingAuth: vi.fn(async (state: string) => {
+    mockPendingAuth.delete(state);
+  }),
+  getAuthCode: vi.fn(async (code: string) => mockAuthCodes.get(code) || null),
+  setAuthCode: vi.fn(async (code: string) => {
+    mockAuthCodes.set(code, { createdAt: Date.now() });
+  }),
+  deleteAuthCode: vi.fn(async (code: string) => {
+    mockAuthCodes.delete(code);
+  }),
+  getRegisteredClient: vi.fn(async (clientId: string) => mockRegisteredClients.get(clientId) || null),
+  setRegisteredClient: vi.fn(async (clientId: string, data: any) => {
+    mockRegisteredClients.set(clientId, data);
+  }),
+  getGoogleCredentials: vi.fn(async () => null),
+  setGoogleCredentials: vi.fn(),
+}));
+
 // Mock google-auth-library to avoid real OAuth calls
 vi.mock('google-auth-library', () => {
   class MockOAuth2Client {
@@ -25,7 +54,7 @@ vi.mock('google-auth-library', () => {
 });
 
 import { oauthRouter } from '../../src/auth/oauth.js';
-import { authCodes, pendingAuth, registeredClients } from '../../src/auth/state.js';
+import * as authState from '../../src/auth/state.js';
 
 describe('OAuth Integration Tests', () => {
   let app: express.Express;
@@ -39,10 +68,10 @@ describe('OAuth Integration Tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Clear all state
-    authCodes.clear();
-    pendingAuth.clear();
-    registeredClients.clear();
+    // Clear all mock state
+    mockAuthCodes.clear();
+    mockPendingAuth.clear();
+    mockRegisteredClients.clear();
   });
 
   describe('GET /.well-known/oauth-authorization-server', () => {
@@ -90,8 +119,8 @@ describe('OAuth Integration Tests', () => {
       expect(response.body.client_name).toBe('Test Client');
       expect(response.body.redirect_uris).toEqual(['https://callback.example.com']);
 
-      // Verify client was stored
-      expect(registeredClients.has(response.body.client_id)).toBe(true);
+      // Verify setRegisteredClient was called
+      expect(authState.setRegisteredClient).toHaveBeenCalled();
     });
 
     it('creates client with default name when not provided', async () => {
@@ -129,8 +158,11 @@ describe('OAuth Integration Tests', () => {
       expect(response.status).toBe(302);
       expect(response.headers.location).toContain('accounts.google.com');
 
-      // Verify pending auth was stored
-      expect(pendingAuth.has('test-state')).toBe(true);
+      // Verify setPendingAuth was called
+      expect(authState.setPendingAuth).toHaveBeenCalledWith('test-state', expect.objectContaining({
+        codeChallenge: 'test-challenge',
+        redirectUri: 'https://callback.example.com',
+      }));
     });
 
     it('returns error for invalid response_type', async () => {
@@ -182,9 +214,9 @@ describe('OAuth Integration Tests', () => {
   describe('POST /oauth/token', () => {
     describe('authorization_code grant', () => {
       it('exchanges valid auth code for tokens', async () => {
-        // Setup: add a valid auth code
+        // Setup: add a valid auth code to mock storage
         const authCode = 'test-auth-code';
-        authCodes.set(authCode, { createdAt: Date.now() });
+        mockAuthCodes.set(authCode, { createdAt: Date.now() });
 
         const response = await request(app)
           .post('/oauth/token')
@@ -197,15 +229,15 @@ describe('OAuth Integration Tests', () => {
         expect(response.body).toHaveProperty('access_token');
         expect(response.body).toHaveProperty('refresh_token');
         expect(response.body.token_type).toBe('Bearer');
-        expect(response.body.expires_in).toBe(3600);
+        expect(response.body.expires_in).toBe(7 * 24 * 60 * 60); // 7 days in seconds
 
         // Verify access token is valid JWT
         const decoded = jwt.verify(response.body.access_token, TEST_JWT_SECRET) as any;
         expect(decoded.type).toBe('access');
         expect(decoded.email).toBe('test@example.com');
 
-        // Verify auth code was consumed
-        expect(authCodes.has(authCode)).toBe(false);
+        // Verify deleteAuthCode was called (code consumed)
+        expect(authState.deleteAuthCode).toHaveBeenCalledWith(authCode);
       });
 
       it('returns error for invalid auth code', async () => {
@@ -240,7 +272,7 @@ describe('OAuth Integration Tests', () => {
         expect(response.status).toBe(200);
         expect(response.body).toHaveProperty('access_token');
         expect(response.body.token_type).toBe('Bearer');
-        expect(response.body.expires_in).toBe(3600);
+        expect(response.body.expires_in).toBe(7 * 24 * 60 * 60); // 7 days in seconds
 
         // Verify new access token is valid
         const decoded = jwt.verify(response.body.access_token, TEST_JWT_SECRET) as any;

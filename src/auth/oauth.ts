@@ -4,9 +4,13 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
 import {
-  pendingAuth,
-  authCodes,
-  registeredClients,
+  getPendingAuth,
+  setPendingAuth,
+  deletePendingAuth,
+  getAuthCode,
+  setAuthCode,
+  deleteAuthCode,
+  setRegisteredClient,
   setGoogleCredentials,
 } from "./state.js";
 
@@ -41,13 +45,13 @@ router.get("/.well-known/oauth-authorization-server", (req, res) => {
 });
 
 // OAuth 2.0 Dynamic Client Registration (RFC 7591)
-router.post("/oauth/register", (req, res) => {
+router.post("/oauth/register", async (req, res) => {
   const { client_name, redirect_uris } = req.body;
 
   const clientId = uuidv4();
   const clientSecret = uuidv4();
 
-  registeredClients.set(clientId, {
+  await setRegisteredClient(clientId, {
     clientSecret,
     clientName: client_name || "Claude",
     redirectUris: redirect_uris || [],
@@ -63,7 +67,7 @@ router.post("/oauth/register", (req, res) => {
 });
 
 // OAuth 2.1 Authorization Endpoint
-router.get("/oauth/authorize", (req, res) => {
+router.get("/oauth/authorize", async (req, res) => {
   const {
     client_id,
     redirect_uri,
@@ -87,7 +91,7 @@ router.get("/oauth/authorize", (req, res) => {
   }
 
   // Store pending auth
-  pendingAuth.set(state as string, {
+  await setPendingAuth(state as string, {
     codeChallenge: code_challenge as string,
     redirectUri: redirect_uri as string,
     createdAt: Date.now(),
@@ -117,7 +121,7 @@ router.get("/oauth/callback", async (req, res) => {
   }
 
   // Retrieve pending auth
-  const pending = pendingAuth.get(state as string);
+  const pending = await getPendingAuth(state as string);
   if (!pending) {
     return res.status(400).send("Invalid or expired state");
   }
@@ -146,7 +150,7 @@ router.get("/oauth/callback", async (req, res) => {
 
     // Store Google credentials for API calls
     if (tokens.refresh_token) {
-      setGoogleCredentials({
+      await setGoogleCredentials({
         refreshToken: tokens.refresh_token,
         email: email!,
       });
@@ -154,10 +158,10 @@ router.get("/oauth/callback", async (req, res) => {
 
     // Generate auth code for Claude
     const authCode = uuidv4();
-    authCodes.set(authCode, { createdAt: Date.now() });
+    await setAuthCode(authCode);
 
     // Clean up pending auth
-    pendingAuth.delete(state as string);
+    await deletePendingAuth(state as string);
 
     // Redirect back to Claude with auth code
     const redirectUrl = new URL(pending.redirectUri);
@@ -171,35 +175,41 @@ router.get("/oauth/callback", async (req, res) => {
   }
 });
 
+// Token TTL constants
+const ACCESS_TOKEN_EXPIRY = "7d";
+const ACCESS_TOKEN_EXPIRES_IN = 7 * 24 * 60 * 60; // 7 days in seconds
+const REFRESH_TOKEN_EXPIRY = "30d";
+
 // OAuth 2.1 Token Endpoint
-router.post("/oauth/token", (req, res) => {
+router.post("/oauth/token", async (req, res) => {
   const { grant_type, code, refresh_token } = req.body;
 
   if (grant_type === "authorization_code") {
     // Validate auth code
-    if (!code || !authCodes.has(code)) {
+    const authCodeData = await getAuthCode(code);
+    if (!code || !authCodeData) {
       return res.status(400).json({ error: "invalid_grant" });
     }
 
     // Consume the code
-    authCodes.delete(code);
+    await deleteAuthCode(code);
 
     // Issue tokens
     const accessToken = jwt.sign(
       { type: "access", email: config.allowedEmail },
       config.jwtSecret,
-      { expiresIn: "1h" }
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
     const refreshToken = jwt.sign(
       { type: "refresh", email: config.allowedEmail },
       config.jwtSecret,
-      { expiresIn: "30d" }
+      { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
 
     return res.json({
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: 3600,
+      expires_in: ACCESS_TOKEN_EXPIRES_IN,
       refresh_token: refreshToken,
     });
   }
@@ -216,13 +226,13 @@ router.post("/oauth/token", (req, res) => {
       const accessToken = jwt.sign(
         { type: "access", email: config.allowedEmail },
         config.jwtSecret,
-        { expiresIn: "1h" }
+        { expiresIn: ACCESS_TOKEN_EXPIRY }
       );
 
       return res.json({
         access_token: accessToken,
         token_type: "Bearer",
-        expires_in: 3600,
+        expires_in: ACCESS_TOKEN_EXPIRES_IN,
       });
     } catch {
       return res.status(400).json({ error: "invalid_grant" });

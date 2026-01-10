@@ -24,7 +24,7 @@ src/
   landing.ts        # Landing page HTML
   auth/
     index.ts        # Re-exports
-    state.ts        # In-memory auth state with cleanup
+    state.ts        # Firestore-based auth state (persistent)
     middleware.ts   # JWT auth middleware
     oauth.ts        # OAuth 2.1 routes
   mcp/
@@ -37,6 +37,24 @@ src/
       docs.ts       # Docs operations
       sheets.ts     # Sheets operations
 ```
+
+### Firestore Collections
+
+Auth state is persisted in Firestore (survives Cloud Function restarts):
+
+| Collection | Purpose | TTL |
+|------------|---------|-----|
+| `pendingAuth` | OAuth authorization flow state | 10 minutes |
+| `authCodes` | Short-lived authorization codes | 10 minutes |
+| `registeredClients` | OAuth client registrations | Permanent |
+| `googleCredentials` | Google API refresh tokens | Permanent |
+
+### Token Lifetimes
+
+| Token Type | Duration |
+|------------|----------|
+| Access token | 7 days |
+| Refresh token | 30 days |
 
 ### Environment Variables
 
@@ -59,7 +77,8 @@ The server exposes these tools via MCP:
 ## Deployment
 
 Set `GCP_PROJECT` environment variable before running `./deploy.sh`. The script:
-1. Enables required GCP APIs
-2. Builds TypeScript
-3. Deploys to Cloud Functions
-4. Sets BASE_URL automatically from the deployed function URL
+1. Enables required GCP APIs (including Firestore)
+2. Creates Firestore database if it doesn't exist
+3. Builds TypeScript
+4. Deploys to Cloud Functions
+5. Sets BASE_URL automatically from the deployed function URL
