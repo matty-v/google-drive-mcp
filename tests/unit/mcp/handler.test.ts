@@ -1,11 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Request, Response } from 'express';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import * as jwt from 'jsonwebtoken';
 
-// Mock the config module before importing handler
-vi.mock('../../../src/config.js', () => ({
-  firestore: {
-    doc: vi.fn(),
-  },
+// Use the same JWT secret as setup.ts
+const TEST_JWT_SECRET = 'test-jwt-secret';
+
+// Mock the auth/state module to control googleCredentials
+vi.mock('../../../src/auth/state.js', () => ({
+  googleCredentials: null,
+  setGoogleCredentials: vi.fn(),
+  pendingAuth: new Map(),
+  authCodes: new Map(),
+  registeredClients: new Map(),
 }));
 
 // Mock the tools module
@@ -30,133 +37,119 @@ vi.mock('../../../src/mcp/tools/index.js', () => ({
   ]),
 }));
 
-import { mcpHandler } from '../../../src/mcp/handler.js';
-import { firestore } from '../../../src/config.js';
+import { mcpRouter } from '../../../src/mcp/handler.js';
 import { toolsByName } from '../../../src/mcp/tools/index.js';
+import * as authState from '../../../src/auth/state.js';
 
-function createMockRequest(body: object, authHeader?: string): Partial<Request> {
-  return {
-    body,
-    headers: authHeader ? { authorization: authHeader } : {},
-  };
+// Helper to generate valid JWT tokens for testing
+function generateTestToken(email: string = 'test@example.com'): string {
+  return jwt.sign({ type: 'access', email }, TEST_JWT_SECRET, { expiresIn: '1h' });
 }
 
-function createMockResponse(): Partial<Response> & { jsonData: any; statusCode: number } {
-  const res: any = {
-    jsonData: null,
-    statusCode: 200,
-    json: vi.fn((data) => {
-      res.jsonData = data;
-      return res;
-    }),
-    status: vi.fn((code) => {
-      res.statusCode = code;
-      return res;
-    }),
-    end: vi.fn(),
-  };
-  return res;
+// Helper to generate invalid/expired tokens
+function generateExpiredToken(email: string = 'test@example.com'): string {
+  return jwt.sign({ type: 'access', email }, TEST_JWT_SECRET, { expiresIn: '-1h' });
+}
+
+function generateWrongTypeToken(email: string = 'test@example.com'): string {
+  return jwt.sign({ type: 'refresh', email }, TEST_JWT_SECRET, { expiresIn: '1h' });
 }
 
 describe('mcp/handler', () => {
+  let app: express.Express;
+
+  beforeAll(() => {
+    app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset googleCredentials to a valid state by default
+    (authState as any).googleCredentials = {
+      refreshToken: 'test-refresh-token',
+      email: 'test@example.com',
+    };
   });
 
   describe('notifications (no id)', () => {
-    it('responds with 200 OK and empty body for notifications', async () => {
-      const req = createMockRequest({ method: 'notifications/initialized' });
-      const res = createMockResponse();
+    it('responds with 200 OK and empty body for notifications with valid auth', async () => {
+      const token = generateTestToken();
+      const response = await request(app)
+        .post('/')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ method: 'notifications/initialized' });
 
-      await mcpHandler(req as Request, res as Response);
-
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.end).toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(response.text).toBe('');
     });
   });
 
-  describe('validateAccessToken', () => {
+  describe('authentication', () => {
     it('returns 401 for missing Authorization header', async () => {
-      const req = createMockRequest({ method: 'initialize', id: 1 });
-      const res = createMockResponse();
+      const response = await request(app)
+        .post('/')
+        .send({ method: 'initialize', id: 1 });
 
-      await mcpHandler(req as Request, res as Response);
-
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.jsonData.error.message).toBe('Missing or invalid Authorization header');
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('unauthorized');
     });
 
     it('returns 401 for non-Bearer token', async () => {
-      const req = createMockRequest({ method: 'initialize', id: 1 }, 'Basic abc123');
-      const res = createMockResponse();
+      const response = await request(app)
+        .post('/')
+        .set('Authorization', 'Basic abc123')
+        .send({ method: 'initialize', id: 1 });
 
-      await mcpHandler(req as Request, res as Response);
-
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.jsonData.error.message).toBe('Missing or invalid Authorization header');
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('unauthorized');
     });
 
-    it('returns 401 for invalid token', async () => {
-      vi.mocked(firestore.doc).mockReturnValue({
-        get: vi.fn().mockResolvedValue({ exists: false }),
-      } as any);
+    it('returns 401 for invalid JWT token', async () => {
+      const response = await request(app)
+        .post('/')
+        .set('Authorization', 'Bearer invalid-token')
+        .send({ method: 'initialize', id: 1 });
 
-      const req = createMockRequest({ method: 'initialize', id: 1 }, 'Bearer invalid-token');
-      const res = createMockResponse();
-
-      await mcpHandler(req as Request, res as Response);
-
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.jsonData.error.message).toBe('Invalid access token');
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('invalid_token');
     });
 
     it('returns 401 for expired token', async () => {
-      const expiredDate = new Date(Date.now() - 3600000); // 1 hour ago
-      vi.mocked(firestore.doc).mockReturnValue({
-        get: vi.fn().mockResolvedValue({
-          exists: true,
-          data: () => ({
-            expires_at: { toDate: () => expiredDate },
-            google_refresh_token: 'refresh-token',
-            user_email: 'test@example.com',
-          }),
-        }),
-      } as any);
+      const expiredToken = generateExpiredToken();
+      const response = await request(app)
+        .post('/')
+        .set('Authorization', `Bearer ${expiredToken}`)
+        .send({ method: 'initialize', id: 1 });
 
-      const req = createMockRequest({ method: 'initialize', id: 1 }, 'Bearer expired-token');
-      const res = createMockResponse();
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('invalid_token');
+    });
 
-      await mcpHandler(req as Request, res as Response);
+    it('returns 401 for wrong token type', async () => {
+      const wrongTypeToken = generateWrongTypeToken();
+      const response = await request(app)
+        .post('/')
+        .set('Authorization', `Bearer ${wrongTypeToken}`)
+        .send({ method: 'initialize', id: 1 });
 
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.jsonData.error.message).toBe('Access token expired');
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('invalid_token');
     });
   });
 
   describe('handleMcpMethod', () => {
-    const validTokenSetup = () => {
-      const futureDate = new Date(Date.now() + 3600000); // 1 hour from now
-      vi.mocked(firestore.doc).mockReturnValue({
-        get: vi.fn().mockResolvedValue({
-          exists: true,
-          data: () => ({
-            expires_at: { toDate: () => futureDate },
-            google_refresh_token: 'test-refresh-token',
-            user_email: 'user@example.com',
-          }),
-        }),
-      } as any);
-    };
-
     describe('initialize', () => {
       it('returns server info and capabilities', async () => {
-        validTokenSetup();
-        const req = createMockRequest({ method: 'initialize', id: 1 }, 'Bearer valid-token');
-        const res = createMockResponse();
+        const token = generateTestToken();
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ method: 'initialize', id: 1 });
 
-        await mcpHandler(req as Request, res as Response);
-
-        expect(res.jsonData).toEqual({
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
           jsonrpc: '2.0',
           id: 1,
           result: {
@@ -170,14 +163,15 @@ describe('mcp/handler', () => {
 
     describe('tools/list', () => {
       it('returns tool definitions with user email in list_drive_files', async () => {
-        validTokenSetup();
-        const req = createMockRequest({ method: 'tools/list', id: 2 }, 'Bearer valid-token');
-        const res = createMockResponse();
+        const token = generateTestToken('user@example.com');
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ method: 'tools/list', id: 2 });
 
-        await mcpHandler(req as Request, res as Response);
-
-        expect(res.jsonData.result.tools).toHaveLength(2);
-        const listFilesTool = res.jsonData.result.tools.find(
+        expect(response.status).toBe(200);
+        expect(response.body.result.tools).toHaveLength(2);
+        const listFilesTool = response.body.result.tools.find(
           (t: any) => t.name === 'list_drive_files'
         );
         expect(listFilesTool.description).toContain('user@example.com');
@@ -186,78 +180,96 @@ describe('mcp/handler', () => {
 
     describe('tools/call', () => {
       it('executes a valid tool and returns result', async () => {
-        validTokenSetup();
-        const req = createMockRequest(
-          {
+        const token = generateTestToken();
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({
             method: 'tools/call',
             params: { name: 'list_drive_files', arguments: {} },
             id: 3,
-          },
-          'Bearer valid-token'
-        );
-        const res = createMockResponse();
-
-        await mcpHandler(req as Request, res as Response);
+          });
 
         const tool = toolsByName.get('list_drive_files');
         expect(tool?.handler).toHaveBeenCalledWith({}, 'test-refresh-token');
-        expect(res.jsonData.result.content[0].text).toBe('files listed');
+        expect(response.body.result.content[0].text).toBe('files listed');
       });
 
       it('returns error for unknown tool', async () => {
-        validTokenSetup();
-        const req = createMockRequest(
-          {
+        const token = generateTestToken();
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({
             method: 'tools/call',
             params: { name: 'unknown_tool', arguments: {} },
             id: 4,
-          },
-          'Bearer valid-token'
-        );
-        const res = createMockResponse();
+          });
 
-        await mcpHandler(req as Request, res as Response);
-
-        expect(res.jsonData.result.content[0].text).toBe('Unknown tool: unknown_tool');
-        expect(res.jsonData.result.isError).toBe(true);
+        expect(response.body.result.content[0].text).toBe('Unknown tool: unknown_tool');
+        expect(response.body.result.isError).toBe(true);
       });
 
       it('handles tool execution errors', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
         const tool = toolsByName.get('search_drive');
         vi.mocked(tool!.handler).mockRejectedValueOnce(new Error('API error'));
 
-        const req = createMockRequest(
-          {
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({
             method: 'tools/call',
             params: { name: 'search_drive', arguments: { query: 'test' } },
             id: 5,
-          },
-          'Bearer valid-token'
-        );
-        const res = createMockResponse();
+          });
 
-        await mcpHandler(req as Request, res as Response);
+        expect(response.body.result.content[0].text).toContain('Error executing search_drive');
+        expect(response.body.result.isError).toBe(true);
+      });
 
-        expect(res.jsonData.result.content[0].text).toContain('Error executing search_drive');
-        expect(res.jsonData.result.isError).toBe(true);
+      it('returns error when googleCredentials is null', async () => {
+        (authState as any).googleCredentials = null;
+        const token = generateTestToken();
+
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({
+            method: 'tools/call',
+            params: { name: 'list_drive_files', arguments: {} },
+            id: 6,
+          });
+
+        expect(response.body.result.content[0].text).toContain('Not authenticated with Google');
+        expect(response.body.result.isError).toBe(true);
       });
     });
 
     describe('unknown method', () => {
       it('returns method not found error', async () => {
-        validTokenSetup();
-        const req = createMockRequest(
-          { method: 'unknown/method', id: 6 },
-          'Bearer valid-token'
-        );
-        const res = createMockResponse();
+        const token = generateTestToken();
+        const response = await request(app)
+          .post('/')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ method: 'unknown/method', id: 6 });
 
-        await mcpHandler(req as Request, res as Response);
-
-        expect(res.jsonData.error.code).toBe(-32601);
-        expect(res.jsonData.error.message).toBe('Method not found: unknown/method');
+        expect(response.body.error.code).toBe(-32601);
+        expect(response.body.error.message).toBe('Method not found: unknown/method');
       });
+    });
+  });
+
+  describe('POST /mcp (alternate endpoint)', () => {
+    it('works the same as POST /', async () => {
+      const token = generateTestToken();
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ method: 'initialize', id: 1 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.result.serverInfo.name).toBe('google-drive-mcp');
     });
   });
 });

@@ -1,34 +1,18 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import * as jwt from 'jsonwebtoken';
 
-// Mock environment variables before any imports
-process.env.GCP_PROJECT = 'test-project';
-process.env.BASE_URL = 'https://test.example.com';
+// Use the same JWT secret as setup.ts
+const TEST_JWT_SECRET = 'test-jwt-secret';
 
-// Mock the config module
-vi.mock('../../src/config.js', () => ({
-  BASE_URL: 'https://test.example.com',
-  PROJECT_ID: 'test-project',
-  PORT: 8080,
-  GOOGLE_SCOPES: ['https://www.googleapis.com/auth/drive.file'],
-  firestore: {
-    collection: vi.fn().mockReturnValue({
-      doc: vi.fn().mockReturnValue({
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
-      }),
-    }),
-    doc: vi.fn().mockReturnValue({
-      get: vi.fn(),
-      set: vi.fn(),
-      delete: vi.fn(),
-    }),
-  },
-  secrets: {
-    accessSecretVersion: vi.fn(),
-  },
+// Mock the auth/state module to control googleCredentials
+vi.mock('../../src/auth/state.js', () => ({
+  googleCredentials: null,
+  setGoogleCredentials: vi.fn(),
+  pendingAuth: new Map(),
+  authCodes: new Map(),
+  registeredClients: new Map(),
 }));
 
 // Mock the tools module
@@ -47,8 +31,13 @@ vi.mock('../../src/mcp/tools/index.js', () => ({
   ]),
 }));
 
-import { mcpHandler } from '../../src/mcp/index.js';
-import { firestore } from '../../src/config.js';
+import { mcpRouter } from '../../src/mcp/handler.js';
+import * as authState from '../../src/auth/state.js';
+
+// Helper to generate valid JWT tokens for testing
+function generateTestToken(email: string = 'user@example.com'): string {
+  return jwt.sign({ type: 'access', email }, TEST_JWT_SECRET, { expiresIn: '1h' });
+}
 
 describe('MCP Integration Tests', () => {
   let app: express.Express;
@@ -56,38 +45,26 @@ describe('MCP Integration Tests', () => {
   beforeAll(() => {
     app = express();
     app.use(express.json());
-    app.post('/', mcpHandler);
-    app.post('/mcp', mcpHandler);
+    app.use(mcpRouter);
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset googleCredentials to a valid state by default
+    (authState as any).googleCredentials = {
+      refreshToken: 'test-refresh-token',
+      email: 'user@example.com',
+    };
   });
-
-  const validTokenSetup = () => {
-    const futureDate = new Date(Date.now() + 3600000);
-    vi.mocked(firestore.doc).mockReturnValue({
-      get: vi.fn().mockResolvedValue({
-        exists: true,
-        data: () => ({
-          expires_at: { toDate: () => futureDate },
-          google_refresh_token: 'test-refresh-token',
-          user_email: 'user@example.com',
-        }),
-      }),
-      set: vi.fn(),
-      delete: vi.fn(),
-    } as any);
-  };
 
   describe('POST / (MCP endpoint)', () => {
     describe('initialize', () => {
       it('returns server capabilities', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'initialize',
@@ -105,11 +82,11 @@ describe('MCP Integration Tests', () => {
 
     describe('tools/list', () => {
       it('returns all available tools', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'tools/list',
@@ -122,11 +99,11 @@ describe('MCP Integration Tests', () => {
       });
 
       it('includes user email in list_drive_files description', async () => {
-        validTokenSetup();
+        const token = generateTestToken('user@example.com');
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'tools/list',
@@ -142,11 +119,11 @@ describe('MCP Integration Tests', () => {
 
     describe('tools/call', () => {
       it('executes list_drive_files tool', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'tools/call',
@@ -159,11 +136,11 @@ describe('MCP Integration Tests', () => {
       });
 
       it('returns error for unknown tool', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'tools/call',
@@ -188,16 +165,10 @@ describe('MCP Integration Tests', () => {
           });
 
         expect(response.status).toBe(401);
-        expect(response.body.error.message).toBe('Missing or invalid Authorization header');
+        expect(response.body.error).toBe('unauthorized');
       });
 
       it('returns 401 for invalid token', async () => {
-        vi.mocked(firestore.doc).mockReturnValue({
-          get: vi.fn().mockResolvedValue({ exists: false }),
-          set: vi.fn(),
-          delete: vi.fn(),
-        } as any);
-
         const response = await request(app)
           .post('/')
           .set('Authorization', 'Bearer invalid-token')
@@ -208,14 +179,16 @@ describe('MCP Integration Tests', () => {
           });
 
         expect(response.status).toBe(401);
-        expect(response.body.error.message).toBe('Invalid access token');
+        expect(response.body.error).toBe('invalid_token');
       });
     });
 
     describe('notifications', () => {
-      it('accepts notifications without auth (no id)', async () => {
+      it('accepts notifications with valid auth (no id)', async () => {
+        const token = generateTestToken();
         const response = await request(app)
           .post('/')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'notifications/initialized',
@@ -227,11 +200,11 @@ describe('MCP Integration Tests', () => {
 
     describe('unknown method', () => {
       it('returns method not found error', async () => {
-        validTokenSetup();
+        const token = generateTestToken();
 
         const response = await request(app)
           .post('/')
-          .set('Authorization', 'Bearer valid-token')
+          .set('Authorization', `Bearer ${token}`)
           .send({
             jsonrpc: '2.0',
             method: 'unknown/method',
@@ -247,11 +220,11 @@ describe('MCP Integration Tests', () => {
 
   describe('POST /mcp (alternate endpoint)', () => {
     it('works the same as POST /', async () => {
-      validTokenSetup();
+      const token = generateTestToken();
 
       const response = await request(app)
         .post('/mcp')
-        .set('Authorization', 'Bearer valid-token')
+        .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '2.0',
           method: 'initialize',
