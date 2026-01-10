@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 
 // Validate required config at startup
+// Note: BASE_URL may be missing on initial deploy (set in second deploy pass)
 const required = [
-  "BASE_URL",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "ALLOWED_EMAIL",
@@ -15,10 +15,14 @@ for (const key of required) {
   }
 }
 
+if (!process.env.BASE_URL) {
+  console.warn("BASE_URL not set - OAuth callbacks will not work until configured");
+}
+
 export const config = {
   // Server
   port: parseInt(process.env.PORT || "8080"),
-  baseUrl: process.env.BASE_URL!,
+  baseUrl: process.env.BASE_URL || "",
 
   // Google OAuth (for authenticating the user)
   googleClientId: process.env.GOOGLE_CLIENT_ID!,
