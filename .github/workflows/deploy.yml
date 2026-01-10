@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  FUNCTION_NAME: google-drive-mcp
+  REGION: us-central1
+  PROJECT_ID: kinetic-object-322814
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: github-actions-deploy@kinetic-object-322814.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Cloud Function
+        run: |
+          gcloud functions deploy $FUNCTION_NAME \
+            --gen2 \
+            --runtime=nodejs20 \
+            --region=$REGION \
+            --source=. \
+            --entry-point=googleDriveMcp \
+            --trigger-http \
+            --allow-unauthenticated \
+            --set-env-vars="ALLOWED_EMAIL=${{ secrets.ALLOWED_EMAIL }}" \
+            --set-secrets="GOOGLE_CLIENT_ID=oauth-client-id:latest,GOOGLE_CLIENT_SECRET=oauth-client-secret:latest,JWT_SECRET=jwt-secret:latest" \
+            --memory=512Mi \
+            --timeout=60s
+
+      - name: Set BASE_URL
+        run: |
+          FUNCTION_URL=$(gcloud functions describe $FUNCTION_NAME --region $REGION --gen2 --format="value(serviceConfig.uri)")
+          gcloud functions deploy $FUNCTION_NAME \
+            --gen2 \
+            --region=$REGION \
+            --update-env-vars="BASE_URL=$FUNCTION_URL"
+          echo "Deployed to: $FUNCTION_URL"
