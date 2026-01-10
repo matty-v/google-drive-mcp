@@ -2,20 +2,25 @@
 set -e
 
 # ============================================================
-# Google Drive MCP Deployment Script
+# Google Drive MCP Deployment Script (Cloud Functions)
 # ============================================================
 
-# Configuration - UPDATE THESE VALUES
 PROJECT_ID="${GCP_PROJECT:-your-project-id}"
 REGION="${GCP_REGION:-us-central1}"
-SERVICE_NAME="google-drive-mcp"
+FUNCTION_NAME="google-drive-mcp"
 
 echo "============================================"
-echo "Google Drive MCP Deployment"
+echo "Google Drive MCP Deployment (Cloud Functions)"
 echo "============================================"
 echo "Project: $PROJECT_ID"
 echo "Region: $REGION"
 echo ""
+
+# Check required env vars
+if [ -z "$ALLOWED_EMAIL" ]; then
+    echo "Error: ALLOWED_EMAIL environment variable required"
+    exit 1
+fi
 
 # Check if gcloud is authenticated
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | head -n1 > /dev/null 2>&1; then
@@ -29,84 +34,65 @@ gcloud config set project "$PROJECT_ID"
 # Enable required APIs
 echo "Enabling required APIs..."
 gcloud services enable \
-    run.googleapis.com \
-    secretmanager.googleapis.com \
-    firestore.googleapis.com \
+    cloudfunctions.googleapis.com \
+    cloudbuild.googleapis.com \
     drive.googleapis.com \
+    docs.googleapis.com \
+    sheets.googleapis.com \
+    secretmanager.googleapis.com \
     --quiet
-
-# Check if Firestore is initialized
-echo "Checking Firestore..."
-if ! gcloud firestore databases describe --project="$PROJECT_ID" > /dev/null 2>&1; then
-    echo "Creating Firestore database..."
-    gcloud firestore databases create --location="$REGION" --project="$PROJECT_ID"
-fi
 
 # Build TypeScript
 echo "Building TypeScript..."
 npm run build
 
-# Deploy to Cloud Run
-echo "Deploying to Cloud Run..."
-gcloud run deploy "$SERVICE_NAME" \
-    --source . \
-    --region "$REGION" \
-    --platform managed \
+# Deploy to Cloud Functions Gen 2
+echo "Deploying to Cloud Functions..."
+gcloud functions deploy "$FUNCTION_NAME" \
+    --gen2 \
+    --runtime=nodejs20 \
+    --region="$REGION" \
+    --source=. \
+    --entry-point=googleDriveMcp \
+    --trigger-http \
     --allow-unauthenticated \
-    --set-env-vars "GCP_PROJECT=$PROJECT_ID" \
-    --memory 512Mi \
-    --timeout 60
+    --set-env-vars="ALLOWED_EMAIL=$ALLOWED_EMAIL" \
+    --set-secrets="GOOGLE_CLIENT_ID=oauth-client-id:latest,GOOGLE_CLIENT_SECRET=oauth-client-secret:latest,JWT_SECRET=jwt-secret:latest" \
+    --memory=512Mi \
+    --timeout=60s
 
-# Get the service URL
-SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format="value(status.url)")
+# Get the function URL
+FUNCTION_URL=$(gcloud functions describe "$FUNCTION_NAME" --region "$REGION" --gen2 --format="value(serviceConfig.uri)")
 
-# Update service with BASE_URL now that we know the URL
+# Update function with BASE_URL
 echo "Setting BASE_URL environment variable..."
-gcloud run services update "$SERVICE_NAME" \
-    --region "$REGION" \
-    --set-env-vars "BASE_URL=$SERVICE_URL,GCP_PROJECT=$PROJECT_ID" \
-    --quiet
+gcloud functions deploy "$FUNCTION_NAME" \
+    --gen2 \
+    --region="$REGION" \
+    --update-env-vars="BASE_URL=$FUNCTION_URL"
 
 echo ""
 echo "============================================"
 echo "Deployment Complete!"
 echo "============================================"
 echo ""
-echo "Service URL: $SERVICE_URL"
+echo "Function URL: $FUNCTION_URL"
 echo ""
-echo "IMPORTANT: Next Steps"
+echo "SETUP CHECKLIST:"
 echo "============================================"
 echo ""
-echo "1. Create OAuth 2.0 credentials in Google Cloud Console:"
+echo "1. Create OAuth credentials at:"
 echo "   https://console.cloud.google.com/apis/credentials?project=$PROJECT_ID"
 echo ""
-echo "   - Click 'Create Credentials' > 'OAuth client ID'"
-echo "   - Application type: 'Web application'"
-echo "   - Name: 'MCP Drive Server'"
-echo "   - Authorized redirect URIs: ${SERVICE_URL}/google/callback"
+echo "   Authorized redirect URI: ${FUNCTION_URL}/oauth/callback"
 echo ""
-echo "2. Store the OAuth credentials in Secret Manager:"
+echo "2. Store secrets (if not already done):"
 echo ""
-echo "   # Store Client ID"
 echo "   echo -n 'YOUR_CLIENT_ID' | gcloud secrets create oauth-client-id --data-file=-"
-echo ""
-echo "   # Store Client Secret"
 echo "   echo -n 'YOUR_CLIENT_SECRET' | gcloud secrets create oauth-client-secret --data-file=-"
+echo "   echo -n '\$(uuidgen)' | gcloud secrets create jwt-secret --data-file=-"
 echo ""
-echo "3. Grant Secret Manager access to Cloud Run service account:"
-echo ""
-echo "   SA_EMAIL=\$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(spec.template.spec.serviceAccountName)')"
-echo "   gcloud secrets add-iam-policy-binding oauth-client-id --member=\"serviceAccount:\$SA_EMAIL\" --role=\"roles/secretmanager.secretAccessor\""
-echo "   gcloud secrets add-iam-policy-binding oauth-client-secret --member=\"serviceAccount:\$SA_EMAIL\" --role=\"roles/secretmanager.secretAccessor\""
-echo ""
-echo "4. Configure OAuth consent screen (if not already done):"
-echo "   https://console.cloud.google.com/apis/credentials/consent?project=$PROJECT_ID"
-echo ""
-echo "   - User type: External (or Internal for Workspace)"
-echo "   - Add scopes: drive.readonly, userinfo.email"
-echo "   - Add your email as a test user"
-echo ""
-echo "5. Add to Claude Web:"
-echo "   - Go to Claude settings > Integrations"
-echo "   - Add MCP server with URL: ${SERVICE_URL}/mcp"
+echo "3. Add to Claude Web:"
+echo "   Settings > Integrations > Add MCP server"
+echo "   URL: $FUNCTION_URL"
 echo ""
