@@ -1,41 +1,41 @@
-import express, { Request, Response } from 'express';
-import { PORT } from './config.js';
-import {
-  discoveryRoutes,
-  registrationRoutes,
-  authorizeRoutes,
-  callbackRoutes,
-  tokenRoutes,
-} from './oauth/index.js';
-import { mcpHandler } from './mcp/index.js';
-import { generateLandingPage } from './landing.js';
+import express from "express";
+import { config } from "./config.js";
+import { oauthRouter } from "./auth/oauth.js";
+import { mcpRouter } from "./mcp/handler.js";
+import { generateLandingPage } from "./landing.js";
+
+// Import state to start cleanup interval
+import "./auth/state.js";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // OAuth routes
-app.use(discoveryRoutes);
-app.use(registrationRoutes);
-app.use(authorizeRoutes);
-app.use(callbackRoutes);
-app.use(tokenRoutes);
+app.use(oauthRouter);
 
-// MCP routes
-app.post('/', mcpHandler);
-app.post('/mcp', mcpHandler);
-
-// Landing page
-app.get('/', (_req: Request, res: Response) => {
-  res.type('html').send(generateLandingPage());
-});
+// MCP protocol handler
+app.use(mcpRouter);
 
 // Health check
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`MCP Drive Server running on port ${PORT}`);
+// Landing page
+app.get("/", (req, res) => {
+  res.type("html").send(generateLandingPage());
 });
+
+// Export for Cloud Functions
+export const googleDriveMcp = app;
+
+// Start server only when running locally (not in Cloud Functions)
+const isCloudFunction = process.env.K_SERVICE || process.env.FUNCTION_TARGET;
+if (!isCloudFunction) {
+  app.listen(config.port, () => {
+    console.log(`Google Drive MCP Server running on port ${config.port}`);
+    console.log(`Base URL: ${config.baseUrl}`);
+    console.log(`Allowed user: ${config.allowedEmail}`);
+  });
+}
