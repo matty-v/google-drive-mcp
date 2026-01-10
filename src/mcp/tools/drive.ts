@@ -1,11 +1,15 @@
-import { google } from 'googleapis';
-import { Tool, ToolResult } from '../types.js';
-import { getGoogleOAuthClient } from '../../oauth/index.js';
+import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
+import { Tool, ToolResult } from "../types.js";
+import { config } from "../../config.js";
 
 async function getDriveClient(googleRefreshToken: string) {
-  const googleOAuth = await getGoogleOAuthClient();
-  googleOAuth.setCredentials({ refresh_token: googleRefreshToken });
-  return google.drive({ version: 'v3', auth: googleOAuth });
+  const oauth2Client = new OAuth2Client(
+    config.googleClientId,
+    config.googleClientSecret
+  );
+  oauth2Client.setCredentials({ refresh_token: googleRefreshToken });
+  return google.drive({ version: "v3", auth: oauth2Client });
 }
 
 export const driveTools: Tool[] = [
