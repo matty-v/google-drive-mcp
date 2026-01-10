@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { OAuth2Client } from "google-auth-library";
-import * as jwt from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
 import {
