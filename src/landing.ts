@@ -1,5 +1,5 @@
 import { toolDefinitions } from './mcp/index.js';
-import { BASE_URL } from './config.js';
+import { config } from './config.js';
 
 interface ToolParam {
   name: string;
@@ -520,7 +520,7 @@ export function generateLandingPage(): string {
           <li><span>Enter the server URL below and complete the OAuth flow to authorize access to your Google Drive</span></li>
         </ol>
         <div class="url-box">
-          <code id="server-url">${BASE_URL}/mcp</code>
+          <code id="server-url">${config.baseUrl}/mcp</code>
           <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('server-url').textContent)">Copy</button>
         </div>
       </div>
