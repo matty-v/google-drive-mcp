@@ -1,7 +1,10 @@
 .git
 .gitignore
 node_modules
-src
-*.ts
-*.md
 .env*
+.worktrees/
+coverage/
+tests/
+*.test.ts
+.claude/
+.github/
